@@ -1,0 +1,15 @@
+{
+  "name": "pr-review-bot",
+  "version": "1.0.0",
+  "description": "Sandboxed pull request review agent. Reviews in Docker, publishes from the host.",
+  "type": "module",
+  "private": true,
+  "bin": { "pr-review": "./pr-review.js" },
+  "scripts": {
+    "review": "node pr-review.js",
+    "test": "node --test \"test/*.test.js\"",
+    "image": "docker build -t pr-review-agent:latest ."
+  },
+  "engines": { "node": ">=20.12.0" },
+  "dependencies": {}
+}
