@@ -177,9 +177,18 @@ function execute(args, timeoutMs, onLog) {
         return;
       }
       if (code !== 0) {
+        // --output-format json reports errors (auth, API) on stdout, not stderr.
+        let detail = stderr.trim();
+        if (!detail) {
+          try {
+            detail = JSON.parse(stdout).result ?? "";
+          } catch {
+            detail = stdout.trim();
+          }
+        }
         reject(
           new SandboxError(
-            `The agent exited with code ${code}.\n${stderr.trim().slice(-2000) || "(no stderr)"}`
+            `The agent exited with code ${code}.\n${String(detail).slice(-2000) || "(no output)"}`
           )
         );
         return;
