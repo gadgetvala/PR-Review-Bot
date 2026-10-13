@@ -109,6 +109,7 @@ Review every new pull request automatically, several at a time:
 ```ini
 WATCH_REPOS=owner/repo,https://github.com/owner/other
 WATCH_CONCURRENCY=2
+WATCH_ON_NEW_COMMITS=true   # false: review each PR once
 ```
 
 ```bash
@@ -117,13 +118,17 @@ npm run watch
 
 Every minute the watcher lists open pull requests and reviews each one whose
 current head commit has no review from your account, publishing with
-`--publish --push`. A new commit on a reviewed PR triggers a fresh review;
-existing findings are not reposted. Drafts are skipped.
+`--publish --push`. Drafts are skipped.
+
+With `WATCH_ON_NEW_COMMITS=true` (the default), a new commit on a reviewed PR
+triggers a fresh review, and findings already posted are not repeated. With
+`false`, each PR is reviewed once and later commits are ignored.
 
 - **No local state.** GitHub is the record of what has been reviewed, so
   restarts are safe.
 - **Failures are not retried in a loop.** A failed review waits for the next
-  commit or a restart, so a bad token cannot burn usage every minute.
+  commit (or, reviewing once, a restart), so a bad token cannot burn usage
+  every minute.
 - **Size the concurrency to the machine.** Each review holds its own container
   with `CONTAINER_MEMORY` and `CONTAINER_CPUS`, and every review counts against
   your Claude plan or API usage.

@@ -27,8 +27,8 @@ const INTERVAL_MS = 60_000;
 
 const running = new Set(); // "owner/repo#12"
 // Head SHA last attempted per PR. A failed review is not retried until the
-// PR gets a new commit or the watcher restarts, so a broken token or an
-// oversized PR cannot burn usage every minute.
+// PR gets a new commit (or, reviewing once, until the watcher restarts), so a
+// broken token or an oversized PR cannot burn usage every minute.
 const attempted = new Map();
 
 const log = (key, message) => say(`${new Date().toISOString()} ${key} ${message}`);
@@ -44,6 +44,8 @@ async function main() {
   }
   // Each review holds a container with CONTAINER_MEMORY and CONTAINER_CPUS.
   const concurrency = Math.max(1, Number.parseInt(process.env.WATCH_CONCURRENCY, 10) || 2);
+  // false: review each pull request once, ignoring later commits.
+  const onNewCommits = !/^(false|0|no)$/i.test(process.env.WATCH_ON_NEW_COMMITS?.trim() ?? "");
 
   await assertDockerReady();
   // Built once up front, so concurrent first reviews do not race to build it.
@@ -62,12 +64,13 @@ async function main() {
 
   say(
     `Watching ${repos.map((r) => r.slug).join(", ")} as ${login}, ` +
-      `${concurrency} at a time, every ${INTERVAL_MS / 1000}s. ${dim("Ctrl+C to stop.")}`
+      `${concurrency} at a time, every ${INTERVAL_MS / 1000}s, ` +
+      `${onNewCommits ? "re-reviewing new commits" : "once per pull request"}. ${dim("Ctrl+C to stop.")}`
   );
 
   for (;;) {
     for (const repo of repos) {
-      await poll(repo, clientFor(repo.host), login, concurrency).catch((error) =>
+      await poll(repo, clientFor(repo.host), { login, concurrency, onNewCommits }).catch((error) =>
         fail(`${repo.slug}: ${error.message}`)
       );
     }
@@ -75,7 +78,7 @@ async function main() {
   }
 }
 
-async function poll(repo, github, login, concurrency) {
+async function poll(repo, github, { login, concurrency, onNewCommits }) {
   const open = await github.paginate(`/repos/${repo.slug}/pulls?state=open`);
 
   for (const pr of open) {
@@ -83,13 +86,15 @@ async function poll(repo, github, login, concurrency) {
       return; // the rest are picked up on a later poll
     }
     const key = `${repo.slug}#${pr.number}`;
-    if (pr.draft || running.has(key) || attempted.get(key) === pr.head.sha) {
+    const seen = onNewCommits ? attempted.get(key) === pr.head.sha : attempted.has(key);
+    if (pr.draft || running.has(key) || seen) {
       continue;
     }
 
     const reviews = await github.reviews({ slug: repo.slug, number: pr.number });
     attempted.set(key, pr.head.sha);
-    if (!reviews.some((r) => r.user?.login === login && r.commit_id === pr.head.sha)) {
+    const mine = reviews.filter((r) => r.user?.login === login);
+    if (!mine.some((r) => !onNewCommits || r.commit_id === pr.head.sha)) {
       review(key, pr);
     }
   }
