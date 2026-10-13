@@ -13,6 +13,8 @@ holds the GitHub credential. **Neither side ever holds both.**
   GitHub returned before anything is published.
 - **Idempotent.** Re-running on new commits never reposts existing findings.
 - **Watch mode.** Poll repositories and review new pull requests automatically.
+- **Telegram alerts.** Optional notifications when reviews start, finish or
+  fail, and when pull requests merge.
 
 ```bash
 node pr-review.js https://github.com/owner/repo/pull/123      # print only
@@ -27,6 +29,7 @@ node pr-review.js 123 --repo owner/name --run-tests           # also run its tes
 - [Quick start](#quick-start)
 - [Options](#options)
 - [Watch mode](#watch-mode)
+- [Telegram notifications](#telegram-notifications)
 - [How it works](#how-it-works)
 - [Security model](#security-model)
 - [Cost tracking](#cost-tracking)
@@ -57,6 +60,7 @@ Fill in `.env`:
 | `CLAUDE_CODE_OAUTH_TOKEN` | container only | `claude setup-token` |
 | `ANTHROPIC_API_KEY` | container only | Alternative to the token above, billed to the API |
 | `DEFAULT_REPO` | host | Optional; allows `node pr-review.js 123` |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | host | Optional, see [Telegram notifications](#telegram-notifications) |
 
 Then run a print-only review:
 
@@ -132,6 +136,27 @@ triggers a fresh review, and findings already posted are not repeated. With
 - **Size the concurrency to the machine.** Each review holds its own container
   with `CONTAINER_MEMORY` and `CONTAINER_CPUS`, and every review counts against
   your Claude plan or API usage.
+
+## Telegram notifications
+
+Set both values in `.env` to get a message for each review, in normal and
+watch mode. Leave both empty to disable.
+
+```ini
+TELEGRAM_BOT_TOKEN=123456:ABC-DEF...   # from @BotFather
+TELEGRAM_CHAT_ID=-1001234567890        # channel or chat id, or @channelname
+```
+
+| Event | Message |
+| --- | --- |
+| 🔍 Review started | Repository, PR number, title, author, size |
+| ✅ Review complete | Critical / Medium / Minor counts, verdict, duration, review link |
+| ❌ Review failed | The error, with credentials redacted |
+| 🎉 Pull request merged | Watch mode only: author, who merged it, branches |
+
+For a channel, add the bot as an administrator first. A Telegram outage or a
+wrong chat id prints a warning and never fails the review. The bot token stays
+on the host and never enters the container.
 
 ## How it works
 
