@@ -49,8 +49,18 @@ export function loadConfig() {
     );
   }
 
+  // Optional. Half-configured is an error rather than silently no messages.
+  const telegramToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  const telegramChatId = process.env.TELEGRAM_CHAT_ID?.trim();
+  if (Boolean(telegramToken) !== Boolean(telegramChatId)) {
+    throw new ConfigError(
+      "Telegram is half-configured. Set both TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID, or neither."
+    );
+  }
+
   return {
     githubToken,
+    telegram: telegramToken ? { token: telegramToken, chatId: telegramChatId } : null,
     claudeToken,
     anthropicKey,
     // github.com or a GitHub Enterprise hostname. The API base differs between

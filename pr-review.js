@@ -29,6 +29,7 @@ import { appendRun, DEFAULT_LOG, summarize } from "./src/runlog.js";
 import { assertDockerReady, ensureImage, runAgent } from "./src/sandbox.js";
 import { FINDINGS_SCHEMA } from "./src/schema.js";
 import { parseTarget, TargetError } from "./src/target.js";
+import { failedMessage, finishedMessage, notifierFor, startedMessage } from "./src/telegram.js";
 import { bold, cyan, dim, fail, green, printFindings, say, step, warn, yellow } from "./src/ui.js";
 import { fingerprintOf, parseAgentOutput, selectEvent, verifyFindings } from "./src/validate.js";
 import { readFile } from "node:fs/promises";
@@ -59,6 +60,9 @@ ${bold("Options")}
   --stats                    print totals from the run log and exit
   --help
 `;
+
+// What the failure notification needs, filled in as main() learns it.
+const run = { notify: async () => {}, target: null, pr: null };
 
 async function main() {
   const { values, positionals } = parseArgs({
@@ -97,10 +101,12 @@ async function main() {
   }
 
   const config = loadConfig();
+  run.notify = notifierFor(config, (reason) => warn(`Telegram notification not sent: ${reason}`));
   const target = parseTarget(positionals[0], {
     defaultRepo: values.repo ?? process.env.DEFAULT_REPO,
     defaultHost: config.githubHost,
   });
+  run.target = target;
 
   // Which credential the container will use decides whether `total_cost_usd`
   // is money or an API-equivalent estimate.
@@ -134,6 +140,7 @@ async function main() {
   });
 
   const { pr, files, reviews, comments, checks } = snapshot;
+  run.pr = pr;
 
   if (files.length === 0) {
     warn("This pull request changes nothing. Nothing to review.");
@@ -143,6 +150,9 @@ async function main() {
   say(
     `  ${dim(`${files.length} files, +${pr.additions}/-${pr.deletions}, ${pr.draft ? "draft" : "ready"}`)}`
   );
+
+  const startedAt = Date.now();
+  await run.notify(startedMessage(pr));
 
   await step("Checking Docker", assertDockerReady);
   await ensureImage(config.image, {
@@ -208,8 +218,7 @@ async function main() {
 
     const parsed = parseAgentOutput(stdout);
     if (!parsed.ok) {
-      fail(parsed.reason);
-      return 1;
+      throw new Error(parsed.reason);
     }
 
     // Root causes already raised by anyone, so a re-run does not repost them.
@@ -263,6 +272,19 @@ async function main() {
       say(dim(`Wrote ${values.json}`));
     }
 
+    const notifyFinished = (published, reviewUrl) =>
+      run.notify(
+        finishedMessage({
+          pr,
+          counts: verified.counts,
+          event,
+          published,
+          reviewUrl,
+          inline: verified.inline.length,
+          seconds: (Date.now() - startedAt) / 1000,
+        })
+      );
+
     const record = async (published) => {
       if (values["no-log"]) {
         return;
@@ -287,6 +309,7 @@ async function main() {
 
     if (!values.publish) {
       await record(false);
+      await notifyFinished(false);
       say(
         `\n${cyan("Not published.")} ${dim(`Re-run with --publish to submit as ${viewer.login}.`)}`
       );
@@ -295,6 +318,7 @@ async function main() {
 
     if (!unattended && !(await confirm(event, verified.inline.length, pr.html_url))) {
       await record(false);
+      await notifyFinished(false);
       say(dim("Cancelled."));
       return 0;
     }
@@ -320,9 +344,10 @@ async function main() {
     await record(result.published);
 
     if (!result.published) {
-      fail(`Not published: ${result.reason}`);
-      return 1;
+      throw new Error(`Not published: ${result.reason}`);
     }
+
+    await notifyFinished(true, result.url);
 
     say(`\n${green("Review published.")}`);
     say(`  ${result.url}`);
@@ -408,4 +433,8 @@ try {
     }
   }
   process.exitCode = 1;
+  // Only once a pull request is known: a typo in the argument is not news.
+  if (run.target) {
+    await run.notify(failedMessage({ target: run.target, pr: run.pr, error: error.message ?? error }));
+  }
 }
