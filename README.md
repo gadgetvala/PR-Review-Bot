@@ -12,6 +12,7 @@ holds the GitHub credential. **Neither side ever holds both.**
 - **Verified output.** Every finding is re-checked on the host against the diff
   GitHub returned before anything is published.
 - **Idempotent.** Re-running on new commits never reposts existing findings.
+- **Watch mode.** Poll repositories and review new pull requests automatically.
 
 ```bash
 node pr-review.js https://github.com/owner/repo/pull/123      # print only
@@ -25,6 +26,7 @@ node pr-review.js 123 --repo owner/name --run-tests           # also run its tes
 - [Requirements](#requirements)
 - [Quick start](#quick-start)
 - [Options](#options)
+- [Watch mode](#watch-mode)
 - [How it works](#how-it-works)
 - [Security model](#security-model)
 - [Cost tracking](#cost-tracking)
@@ -100,6 +102,32 @@ organisation resource-owner trap, the approval flow, and troubleshooting.
 | `--no-log` | Do not record this run. |
 | `--stats` | Print totals from the run log and exit. |
 
+## Watch mode
+
+Review every new pull request automatically, several at a time:
+
+```ini
+WATCH_REPOS=owner/repo,https://github.com/owner/other
+WATCH_CONCURRENCY=2
+```
+
+```bash
+npm run watch
+```
+
+Every minute the watcher lists open pull requests and reviews each one whose
+current head commit has no review from your account, publishing with
+`--publish --push`. A new commit on a reviewed PR triggers a fresh review;
+existing findings are not reposted. Drafts are skipped.
+
+- **No local state.** GitHub is the record of what has been reviewed, so
+  restarts are safe.
+- **Failures are not retried in a loop.** A failed review waits for the next
+  commit or a restart, so a bad token cannot burn usage every minute.
+- **Size the concurrency to the machine.** Each review holds its own container
+  with `CONTAINER_MEMORY` and `CONTAINER_CPUS`, and every review counts against
+  your Claude plan or API usage.
+
 ## How it works
 
 ```
@@ -162,6 +190,7 @@ On a subscription token the cost is an API-equivalent estimate, not a charge.
 
 ```
 pr-review.js        CLI: orchestration, confirmation, exit codes
+watch.js            polls repositories and runs pr-review.js per new PR
 agent/spec.md       review doctrine, sent as the system prompt
 Dockerfile          the review sandbox
 src/
@@ -184,6 +213,7 @@ src/
 
 ```bash
 npm test          # no network, no Docker
+npm run watch     # start watch mode
 npm run image     # rebuild the sandbox image
 ```
 
