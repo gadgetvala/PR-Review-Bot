@@ -137,6 +137,34 @@ triggers a fresh review, and findings already posted are not repeated. With
   with `CONTAINER_MEMORY` and `CONTAINER_CPUS`, and every review counts against
   your Claude plan or API usage.
 
+### Running with pm2
+
+`.env` is read from the project folder, so pm2 can start the watcher from
+anywhere:
+
+```bash
+npm install -g pm2
+pm2 start watch.js --name pr-review --restart-delay 60000
+```
+
+| Command | Purpose |
+| --- | --- |
+| `pm2 logs pr-review` | Live output, each line tagged with its `repo#PR` |
+| `pm2 status` | Process state |
+| `pm2 restart pr-review` | Apply `.env` changes |
+| `pm2 stop pr-review` | Stop watching |
+| `pm2 startup` then `pm2 save` | Start on boot |
+
+- **Do not pass pm2's `--watch`.** Each review writes `runs.csv`, which would
+  restart the watcher and abort any review still running.
+- **Keep `--restart-delay`.** A configuration error (empty `WATCH_REPOS`,
+  Docker not running) exits at once; the delay stops a tight restart loop.
+- **Docker must start on boot too.** On macOS, enable *Start Docker Desktop
+  when you sign in*.
+- **pm2 uses your default `node`**, which must be 20.12 or newer.
+- **Stopping interrupts in-flight reviews.** Nothing was published for them,
+  so they are picked up again on the next poll.
+
 ## Telegram notifications
 
 Set both values in `.env` to get a message for each review, in normal and
