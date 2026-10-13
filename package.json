@@ -7,6 +7,7 @@
   "bin": { "pr-review": "./pr-review.js" },
   "scripts": {
     "review": "node pr-review.js",
+    "watch": "node watch.js",
     "test": "node --test \"test/*.test.js\"",
     "image": "docker build -t pr-review-agent:latest ."
   },

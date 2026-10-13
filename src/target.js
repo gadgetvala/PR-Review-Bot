@@ -77,3 +77,18 @@ export function parseTarget(input, { defaultRepo, defaultHost = "github.com" } =
     `Could not read "${raw}" as a pull request. Use a URL, owner/repo#123, or a bare number with --repo.`
   );
 }
+
+/**
+ * A repository to watch: `owner/repo` or `https://<host>/owner/repo[.git]`.
+ * Validated by the same rules as a pull request target.
+ */
+export function parseRepo(input, { defaultHost = "github.com" } = {}) {
+  const raw = String(input ?? "").trim().replace(/\.git$|\/+$/g, "");
+  const url = raw.match(/^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)$/i);
+  const [owner, repo] = url ? [url[2], url[3]] : raw.split("/");
+  if (!owner || !repo || (!url && raw.split("/").length !== 2)) {
+    throw new TargetError(`"${raw}" is not a repository. Use owner/repo or its URL.`);
+  }
+  const { host, slug } = validate(owner, repo, 1, url ? url[1] : defaultHost);
+  return { host, owner, repo, slug };
+}

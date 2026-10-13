@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { parseTarget, TargetError } from "../src/target.js";
+import { parseRepo, parseTarget, TargetError } from "../src/target.js";
 
 describe("parseTarget", () => {
   it("reads a pull request URL, including a sub-page", () => {
@@ -61,5 +61,19 @@ describe("parseTarget", () => {
     assert.throws(() => parseTarget("acme/web#0"), TargetError);
     assert.throws(() => parseTarget("acme/web#-1"), TargetError);
     assert.throws(() => parseTarget(""), TargetError);
+  });
+});
+
+describe("parseRepo", () => {
+  it("reads owner/repo and repository URLs", () => {
+    assert.equal(parseRepo("acme/web").slug, "acme/web");
+    assert.equal(parseRepo("https://github.com/acme/web.git").slug, "acme/web");
+    assert.equal(parseRepo("https://git.corp.io/acme/web/").host, "git.corp.io");
+  });
+
+  it("rejects pull request URLs and malformed input", () => {
+    for (const bad of ["acme", "acme/web/pull/1", "https://github.com/acme/web/pull/1", "a b/web", ""]) {
+      assert.throws(() => parseRepo(bad), TargetError, `should reject ${bad}`);
+    }
   });
 });
