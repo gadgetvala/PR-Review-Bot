@@ -20,6 +20,7 @@ import { ConfigError, loadConfig, ROOT } from "./src/config.js";
 import { GitHub } from "./src/github.js";
 import { assertDockerReady, ensureImage } from "./src/sandbox.js";
 import { parseRepo } from "./src/target.js";
+import { mergedMessage, notifierFor } from "./src/telegram.js";
 import { dim, fail, say, warn } from "./src/ui.js";
 
 // ponytail: fixed interval; 60 list calls/hour/repo is well inside GitHub's 5000.
@@ -30,6 +31,9 @@ const running = new Set(); // "owner/repo#12"
 // PR gets a new commit (or, reviewing once, until the watcher restarts), so a
 // broken token or an oversized PR cannot burn usage every minute.
 const attempted = new Map();
+// Open PR numbers per repo at the last poll; one that disappears was closed
+// or merged. Starts empty, so PRs merged while the watcher was down are missed.
+const lastOpen = new Map();
 
 const log = (key, message) => say(`${new Date().toISOString()} ${key} ${message}`);
 
@@ -61,6 +65,7 @@ async function main() {
     return clients.get(host);
   };
   const { login } = await clientFor(repos[0].host).viewer();
+  const notify = notifierFor(config, (reason) => fail(`Telegram notification not sent: ${reason}`));
 
   say(
     `Watching ${repos.map((r) => r.slug).join(", ")} as ${login}, ` +
@@ -70,7 +75,7 @@ async function main() {
 
   for (;;) {
     for (const repo of repos) {
-      await poll(repo, clientFor(repo.host), { login, concurrency, onNewCommits }).catch((error) =>
+      await poll(repo, clientFor(repo.host), { login, concurrency, onNewCommits, notify }).catch((error) =>
         fail(`${repo.slug}: ${error.message}`)
       );
     }
@@ -78,8 +83,9 @@ async function main() {
   }
 }
 
-async function poll(repo, github, { login, concurrency, onNewCommits }) {
+async function poll(repo, github, { login, concurrency, onNewCommits, notify }) {
   const open = await github.paginate(`/repos/${repo.slug}/pulls?state=open`);
+  await announceMerged(repo, github, open, notify);
 
   for (const pr of open) {
     if (running.size >= concurrency) {
@@ -96,6 +102,31 @@ async function poll(repo, github, { login, concurrency, onNewCommits }) {
     const mine = reviews.filter((r) => r.user?.login === login);
     if (!mine.some((r) => !onNewCommits || r.commit_id === pr.head.sha)) {
       review(key, pr);
+    }
+  }
+}
+
+async function announceMerged(repo, github, open, notify) {
+  const previous = lastOpen.get(repo.slug);
+  const current = new Set(open.map((pr) => pr.number));
+  lastOpen.set(repo.slug, current);
+  if (!previous) {
+    return; // first poll: nothing to compare against
+  }
+  for (const number of previous) {
+    if (current.has(number)) {
+      continue;
+    }
+    const key = `${repo.slug}#${number}`;
+    attempted.delete(key);
+    try {
+      const pr = await github.pullRequest({ slug: repo.slug, number });
+      if (pr.merged_at) {
+        log(key, "merged");
+        await notify(mergedMessage(pr));
+      }
+    } catch (error) {
+      fail(`${key}: could not check whether it merged: ${error.message}`);
     }
   }
 }
